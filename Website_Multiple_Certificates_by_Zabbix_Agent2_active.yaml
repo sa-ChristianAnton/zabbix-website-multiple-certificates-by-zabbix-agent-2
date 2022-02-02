@@ -1,0 +1,866 @@
+zabbix_export:
+  version: '5.4'
+  date: '2022-02-02T21:11:05Z'
+  groups:
+    -
+      uuid: a571c0d144b14fd4a87a9d9b2aa9fcd6
+      name: Templates/Applications
+  templates:
+    -
+      uuid: 2755baa826974223b11cd07c2cf5f9b5
+      template: 'Website MULTIPLE certificates by Zabbix agent 2'
+      name: 'Website MULTIPLE certificates by Zabbix agent 2'
+      description: |
+        Inspired by the original single certificate monitoring template, but much cooler:
+        We need a macro configuring the entire certificate monitoring in the following way, in one string:
+        
+        HOSTNAME,<PORT>,<ADDRESS>;HOSTNAME,<PORT>,<ADDRESS>;...
+        
+        This way, we can monitor as many certificates as we want, on one single host with one single template.
+        
+        A "script" item will run to convert this Macro into a JSON structure that looks as follows:
+        
+        [
+          {"hostname":"host1.mycompany.com","port":"","address":""},
+          {"hostname":"host2.mycompany.com","port":"443","address":"127.0.0.1"}
+        ]
+        
+        In case "port" or "address" is not needed, it can be omitted, also, in the Macro, double comma syntax can be used if only "hostname" and "address" is to be supplied.
+        
+        From the above JSON structure, a Low Level Discovery will run and create 14 items and corresponding Triggers for each certificate.
+      groups:
+        -
+          name: Templates/Applications
+      items:
+        -
+          uuid: d30e925bd07842088e7c7c146bdaaa6f
+          name: 'Certificate Monitoring configuration list'
+          type: SCRIPT
+          key: cert.mon.configuration
+          delay: 1h
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          params: |
+            var macroconf = '{$MULTICERT.CONFIG}'
+            var splitconf = macroconf.split(';')
+            var estr = ''
+            var json = []
+            for (var i=0; i<splitconf.length; i++) {
+              var jsonelem = {}
+              var certmonelems = splitconf[i].split(',')
+              if (certmonelems.length == 3) {
+                jsonelem = {"hostname": certmonelems[0], "port": certmonelems[1], "address": certmonelems[2]}
+              } else if (certmonelems.length == 2) {
+                jsonelem = {"hostname": certmonelems[0], "port": certmonelems[1], "address": ""}
+              } else if (certmonelems.length == 1) {
+                jsonelem = {"hostname": certmonelems[0], "port": "", "address": ""}
+              }
+              json.push(jsonelem)
+            }
+            return JSON.stringify(json)
+          tags:
+            -
+              tag: Application
+              value: Certificates
+            -
+              tag: Application
+              value: 'Zabbix raw items'
+      discovery_rules:
+        -
+          uuid: 3290e6b6aa6149d987c5c780c0a3324d
+          name: 'Certificate discovery'
+          type: DEPENDENT
+          key: web.certificate.config.discovery
+          delay: '0'
+          lifetime: 7d
+          item_prototypes:
+            -
+              uuid: 83fbaf80d39c41f9bbeebf1fe4f64a76
+              name: 'Cert {#HOSTNAME}: Subject alternative name'
+              type: DEPENDENT
+              key: 'cert.alternative_names[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: TEXT
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.alternative_names
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: 6de3f567c6ad4eb68cfc7e0057e25183
+              name: 'Cert {#HOSTNAME}: Days left until expiry'
+              type: CALCULATED
+              key: 'cert.days.left[{#HOSTNAME}]'
+              value_type: FLOAT
+              units: d
+              params: '(last(//cert.not_after[{#HOSTNAME}])-now())/ 86400'
+              preprocessing:
+                -
+                  type: REGEX
+                  parameters:
+                    - '[^.]*'
+                    - \0
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: 3771d2f2fe704a37a3776d455b43e0d8
+              name: 'Cert {#HOSTNAME}: Issuer'
+              type: DEPENDENT
+              key: 'cert.issuer[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: TEXT
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.issuer
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: 8fffee0b96d640659b30c20a8f92fe42
+              name: 'Cert {#HOSTNAME}: Last validation status'
+              type: DEPENDENT
+              key: 'cert.message[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: TEXT
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.result.message
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: 4f647af7ab684a928dd9995eff654cae
+              name: 'Cert {#HOSTNAME}: Expires on'
+              type: DEPENDENT
+              key: 'cert.not_after[{#HOSTNAME}]'
+              delay: '0'
+              units: unixtime
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.not_after.timestamp
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+              trigger_prototypes:
+                -
+                  uuid: 1b82f73d77e64c6d82d9e6edfa71da48
+                  expression: '(last(/Website MULTIPLE certificates by Zabbix agent 2/cert.not_after[{#HOSTNAME}]) - now()) / 86400 < {$CERT.EXPIRY.WARN.LOW:"{#HOSTNAME}"}'
+                  name: 'Cert {#HOSTNAME}: SSL certificate expires soon (less than {$CERT.EXPIRY.WARN.LOW} days)'
+                  priority: INFO
+                  description: 'The SSL certificate should be updated or it will become untrusted.'
+                  dependencies:
+                    -
+                      name: 'Cert {#HOSTNAME}: SSL certificate is invalid'
+                      expression: 'find(/Website MULTIPLE certificates by Zabbix agent 2/cert.validation[{#HOSTNAME}],,"like","invalid")=1'
+                -
+                  uuid: e899413730e740d89151f41a14fbe522
+                  expression: '(last(/Website MULTIPLE certificates by Zabbix agent 2/cert.not_after[{#HOSTNAME}]) - now()) / 86400 < {$CERT.EXPIRY.WARN:"{#HOSTNAME}"}'
+                  name: 'Cert {#HOSTNAME}: SSL certificate expires soon (less than {$CERT.EXPIRY.WARN} days)'
+                  priority: WARNING
+                  dependencies:
+                    -
+                      name: 'Cert {#HOSTNAME}: SSL certificate is invalid'
+                      expression: 'find(/Website MULTIPLE certificates by Zabbix agent 2/cert.validation[{#HOSTNAME}],,"like","invalid")=1'
+            -
+              uuid: 3118cf23d3cb45c0956e2ddfefa803b2
+              name: 'Cert {#HOSTNAME}: Valid from'
+              type: DEPENDENT
+              key: 'cert.not_before[{#HOSTNAME}]'
+              delay: '0'
+              units: unixtime
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.not_before.timestamp
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: 1973f38b0f27467b95fd62ace96bdc12
+              name: 'Cert {#HOSTNAME}: Public key algorithm'
+              type: DEPENDENT
+              key: 'cert.public_key_algorithm[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.public_key_algorithm
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: 9414485f283f47b1856fa9d5d2844d78
+              name: 'Cert {#HOSTNAME}: Serial number'
+              type: DEPENDENT
+              key: 'cert.serial_number[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.serial_number
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: 3fd202dc597c48c29252becfd1a09eb6
+              name: 'Cert {#HOSTNAME}: Fingerprint'
+              type: DEPENDENT
+              key: 'cert.sha1_fingerprint[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.sha1_fingerprint
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+              trigger_prototypes:
+                -
+                  uuid: d4946abea0ae44d7a379f0305d8c02c3
+                  expression: 'last(/Website MULTIPLE certificates by Zabbix agent 2/cert.sha1_fingerprint[{#HOSTNAME}]) <> last(/Website MULTIPLE certificates by Zabbix agent 2/cert.sha1_fingerprint[{#HOSTNAME}],#2)'
+                  name: 'Cert {#HOSTNAME}: Fingerprint has changed (new version: {ITEM.VALUE})'
+                  priority: INFO
+                  description: |
+                    The SSL certificate fingerprint has changed. If you did not update the certificate, it may mean your certificate has been hacked. Ack to close.
+                    There could be multiple valid certificates on some installations. In this case, the trigger will have a false positive. You can ignore it or disable the trigger.
+                  manual_close: 'YES'
+            -
+              uuid: 53043e18e1eb49f1bf45bb6943f5b19b
+              name: 'Cert {#HOSTNAME}: Signature algorithm'
+              type: DEPENDENT
+              key: 'cert.signature_algorithm[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.signature_algorithm
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: e98ac29e521444b6be0a7eab71ffadf8
+              name: 'Cert {#HOSTNAME}: Subject'
+              type: DEPENDENT
+              key: 'cert.subject[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: TEXT
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.subject
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: 6f59fc4433ff4fefb7e75452b75625da
+              name: 'Cert {#HOSTNAME}: Validation result'
+              type: DEPENDENT
+              key: 'cert.validation[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.result.value
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+              trigger_prototypes:
+                -
+                  uuid: 89f239c084024871831b9d026004ce3e
+                  expression: 'find(/Website MULTIPLE certificates by Zabbix agent 2/cert.validation[{#HOSTNAME}],,"like","invalid")=1'
+                  name: 'Cert {#HOSTNAME}: SSL certificate is invalid'
+                  priority: HIGH
+            -
+              uuid: 051efa5566164293a36644fcd90e72b4
+              name: 'Cert {#HOSTNAME}: Version'
+              type: DEPENDENT
+              key: 'cert.version[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.version
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: 5c3674c148784a0eb5a616c8531e2721
+              name: 'Cert {#HOSTNAME}: Get'
+              key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              delay: 15m
+              history: '0'
+              trends: '0'
+              value_type: TEXT
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+                -
+                  tag: Application
+                  value: 'Zabbix raw items'
+          master_item:
+            key: cert.mon.configuration
+          lld_macro_paths:
+            -
+              lld_macro: '{#HOSTNAME}'
+              path: $.hostname
+            -
+              lld_macro: '{#PORT}'
+              path: $.port
+            -
+              lld_macro: '{#ADDRESS}'
+              path: $.address
+      macros:
+        -
+          macro: '{$CERT.EXPIRY.WARN}'
+          value: '14'
+          description: 'Number of days until the certificate expires. Supports HOSTNAME as context'
+        -
+          macro: '{$CERT.EXPIRY.WARN.LOW}'
+          value: '30'
+          description: 'Number of days for first informational alert on upcoming expiry. Supports HOSTNAME as context'
+        -
+          macro: '{$MULTICERT.CONFIG}'
+          value: 'Hostname,<port>,<ip>;Hostname,<port>,<ip>'
+          description: 'Multi-Certificate monitoring configuration'
+    -
+      uuid: ae9932efc9de4f4ba199cd48f6368e8b
+      template: 'Website MULTIPLE certificates by Zabbix agent 2 active'
+      name: 'Website MULTIPLE certificates by Zabbix agent 2 active'
+      description: |
+        Inspired by the original single certificate monitoring template, but much cooler:
+        We need a macro configuring the entire certificate monitoring in the following way, in one string:
+        
+        HOSTNAME,<PORT>,<ADDRESS>;HOSTNAME,<PORT>,<ADDRESS>;...
+        
+        This way, we can monitor as many certificates as we want, on one single host with one single template.
+        
+        A "script" item will run to convert this Macro into a JSON structure that looks as follows:
+        
+        [
+          {"hostname":"host1.mycompany.com","port":"","address":""},
+          {"hostname":"host2.mycompany.com","port":"443","address":"127.0.0.1"}
+        ]
+        
+        In case "port" or "address" is not needed, it can be omitted, also, in the Macro, double comma syntax can be used if only "hostname" and "address" is to be supplied.
+        
+        From the above JSON structure, a Low Level Discovery will run and create 14 items and corresponding Triggers for each certificate.
+      groups:
+        -
+          name: Templates/Applications
+      items:
+        -
+          uuid: 5e646c21c42c4500907bab25667f5fcb
+          name: 'Certificate Monitoring configuration list'
+          type: SCRIPT
+          key: cert.mon.configuration
+          delay: 1h
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          params: |
+            var macroconf = '{$MULTICERT.CONFIG}'
+            var splitconf = macroconf.split(';')
+            var estr = ''
+            var json = []
+            for (var i=0; i<splitconf.length; i++) {
+              var jsonelem = {}
+              var certmonelems = splitconf[i].split(',')
+              if (certmonelems.length == 3) {
+                jsonelem = {"hostname": certmonelems[0], "port": certmonelems[1], "address": certmonelems[2]}
+              } else if (certmonelems.length == 2) {
+                jsonelem = {"hostname": certmonelems[0], "port": certmonelems[1], "address": ""}
+              } else if (certmonelems.length == 1) {
+                jsonelem = {"hostname": certmonelems[0], "port": "", "address": ""}
+              }
+              json.push(jsonelem)
+            }
+            return JSON.stringify(json)
+          tags:
+            -
+              tag: Application
+              value: Certificates
+            -
+              tag: Application
+              value: 'Zabbix raw items'
+      discovery_rules:
+        -
+          uuid: 0ae28dc54464472dac005e92ebaf27eb
+          name: 'Certificate discovery'
+          type: DEPENDENT
+          key: web.certificate.config.discovery
+          delay: '0'
+          lifetime: 7d
+          item_prototypes:
+            -
+              uuid: e03e4474171b4c3d8def9638261051eb
+              name: 'Cert {#HOSTNAME}: Subject alternative name'
+              type: DEPENDENT
+              key: 'cert.alternative_names[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: TEXT
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.alternative_names
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: ff556f8d5c184fd4a5c75970bb6e7ab3
+              name: 'Cert {#HOSTNAME}: Days left until expiry'
+              type: CALCULATED
+              key: 'cert.days.left[{#HOSTNAME}]'
+              value_type: FLOAT
+              units: d
+              params: '(last(//cert.not_after[{#HOSTNAME}])-now())/ 86400'
+              preprocessing:
+                -
+                  type: REGEX
+                  parameters:
+                    - '[^.]*'
+                    - \0
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: 563fed6ad0de4ba38e392594455c98a2
+              name: 'Cert {#HOSTNAME}: Issuer'
+              type: DEPENDENT
+              key: 'cert.issuer[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: TEXT
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.issuer
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: c44bc53944654a818ed80ef2c5b24a34
+              name: 'Cert {#HOSTNAME}: Last validation status'
+              type: DEPENDENT
+              key: 'cert.message[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: TEXT
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.result.message
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: cf91ac65da014d71af8e2bb8378dc828
+              name: 'Cert {#HOSTNAME}: Expires on'
+              type: DEPENDENT
+              key: 'cert.not_after[{#HOSTNAME}]'
+              delay: '0'
+              units: unixtime
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.not_after.timestamp
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+              trigger_prototypes:
+                -
+                  uuid: 9b699c2287d442b197f7a77610bffa1d
+                  expression: '(last(/Website MULTIPLE certificates by Zabbix agent 2 active/cert.not_after[{#HOSTNAME}]) - now()) / 86400 < {$CERT.EXPIRY.WARN.LOW:"{#HOSTNAME}"}'
+                  name: 'Cert {#HOSTNAME}: SSL certificate expires soon (less than {$CERT.EXPIRY.WARN.LOW} days)'
+                  priority: INFO
+                  description: 'The SSL certificate should be updated or it will become untrusted.'
+                  dependencies:
+                    -
+                      name: 'Cert {#HOSTNAME}: SSL certificate is invalid'
+                      expression: 'find(/Website MULTIPLE certificates by Zabbix agent 2 active/cert.validation[{#HOSTNAME}],,"like","invalid")=1'
+                -
+                  uuid: 31d0c078b6db49a98e10ac4a84da31d2
+                  expression: '(last(/Website MULTIPLE certificates by Zabbix agent 2 active/cert.not_after[{#HOSTNAME}]) - now()) / 86400 < {$CERT.EXPIRY.WARN:"{#HOSTNAME}"}'
+                  name: 'Cert {#HOSTNAME}: SSL certificate expires soon (less than {$CERT.EXPIRY.WARN} days)'
+                  priority: WARNING
+                  dependencies:
+                    -
+                      name: 'Cert {#HOSTNAME}: SSL certificate is invalid'
+                      expression: 'find(/Website MULTIPLE certificates by Zabbix agent 2 active/cert.validation[{#HOSTNAME}],,"like","invalid")=1'
+            -
+              uuid: b7b3ed684fc04b998452277ac394a872
+              name: 'Cert {#HOSTNAME}: Valid from'
+              type: DEPENDENT
+              key: 'cert.not_before[{#HOSTNAME}]'
+              delay: '0'
+              units: unixtime
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.not_before.timestamp
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: 9e58fae2709542eba310a5e76d3b0c8a
+              name: 'Cert {#HOSTNAME}: Public key algorithm'
+              type: DEPENDENT
+              key: 'cert.public_key_algorithm[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.public_key_algorithm
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: cf31212b9d1c475f8d4daffe9b97be96
+              name: 'Cert {#HOSTNAME}: Serial number'
+              type: DEPENDENT
+              key: 'cert.serial_number[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.serial_number
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: 2c3e6512c44f442bbce7ecc1b9113b46
+              name: 'Cert {#HOSTNAME}: Fingerprint'
+              type: DEPENDENT
+              key: 'cert.sha1_fingerprint[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.sha1_fingerprint
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+              trigger_prototypes:
+                -
+                  uuid: 8bc5efebe3744fc597d175b662767df6
+                  expression: 'last(/Website MULTIPLE certificates by Zabbix agent 2 active/cert.sha1_fingerprint[{#HOSTNAME}]) <> last(/Website MULTIPLE certificates by Zabbix agent 2 active/cert.sha1_fingerprint[{#HOSTNAME}],#2)'
+                  name: 'Cert {#HOSTNAME}: Fingerprint has changed (new version: {ITEM.VALUE})'
+                  priority: INFO
+                  description: |
+                    The SSL certificate fingerprint has changed. If you did not update the certificate, it may mean your certificate has been hacked. Ack to close.
+                    There could be multiple valid certificates on some installations. In this case, the trigger will have a false positive. You can ignore it or disable the trigger.
+            -
+              uuid: cc7f69a1e4b74864b9414c5b7491d4c5
+              name: 'Cert {#HOSTNAME}: Signature algorithm'
+              type: DEPENDENT
+              key: 'cert.signature_algorithm[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.signature_algorithm
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: c47e7bb8c58347e59a34ccb46b9522bf
+              name: 'Cert {#HOSTNAME}: Subject'
+              type: DEPENDENT
+              key: 'cert.subject[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: TEXT
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.subject
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: d3464046f7c4478b84c6236b5a83f563
+              name: 'Cert {#HOSTNAME}: Validation result'
+              type: DEPENDENT
+              key: 'cert.validation[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.result.value
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+              trigger_prototypes:
+                -
+                  uuid: 05e094d6f27549e09b5378faebf5ee74
+                  expression: 'find(/Website MULTIPLE certificates by Zabbix agent 2 active/cert.validation[{#HOSTNAME}],,"like","invalid")=1'
+                  name: 'Cert {#HOSTNAME}: SSL certificate is invalid'
+                  priority: HIGH
+            -
+              uuid: 93438003f8ab4e5d86a94b0052fa2b6f
+              name: 'Cert {#HOSTNAME}: Version'
+              type: DEPENDENT
+              key: 'cert.version[{#HOSTNAME}]'
+              delay: '0'
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                -
+                  type: JSONPATH
+                  parameters:
+                    - $.x509.version
+                -
+                  type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+            -
+              uuid: 62c8ac1f812946d882bdbebdec0aea64
+              name: 'Cert {#HOSTNAME}: Get'
+              type: ZABBIX_ACTIVE
+              key: 'web.certificate.get[{#HOSTNAME},{#PORT},{#ADDRESS}]'
+              delay: 5m
+              history: '0'
+              trends: '0'
+              value_type: TEXT
+              tags:
+                -
+                  tag: Application
+                  value: Certificates
+                -
+                  tag: Application
+                  value: 'Zabbix raw items'
+          master_item:
+            key: cert.mon.configuration
+          lld_macro_paths:
+            -
+              lld_macro: '{#HOSTNAME}'
+              path: $.hostname
+            -
+              lld_macro: '{#PORT}'
+              path: $.port
+            -
+              lld_macro: '{#ADDRESS}'
+              path: $.address
+      macros:
+        -
+          macro: '{$CERT.EXPIRY.WARN}'
+          value: '14'
+          description: 'Number of days until the certificate expires. Supports HOSTNAME as context'
+        -
+          macro: '{$CERT.EXPIRY.WARN.LOW}'
+          value: '30'
+          description: 'Number of days for first informational alert on upcoming expiry. Supports HOSTNAME as context'
+        -
+          macro: '{$MULTICERT.CONFIG}'
+          value: 'Hostname,<port>,<ip>;Hostname,<port>,<ip>'
+          description: 'Multi-Certificate monitoring configuration'
